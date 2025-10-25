@@ -1,18 +1,27 @@
 #!/bin/bash
 
-if [ $# -eq 0 ]; then
-    echo "Ошибка: Не переданы аргументы"
+if test "$#" -eq 0
+then
+
+    echo "Входные аргументы отсутствуют!"
+
     exit 1
 fi
 
-count=$#
+echo "Количество введённых аргументов: $#"
 sum=0
 
-for num in "$@"; do
-    sum=$((sum + num))
+for arg in "$@"
+do
+    if ! expr "$arg" + 0 &> /dev/null
+
+    then
+        echo "Ошибка: '$arg' не является числом."
+        exit 1
+    fi
+    sum=$(echo "$sum + $arg" | bc)
+
 done
+average=$(echo "$sum / $#" | bc -l)
 
-average=$((sum / count))
-
-echo "Количество чисел: $count"
 echo "Среднее арифметическое: $average"
