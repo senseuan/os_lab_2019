@@ -19,30 +19,24 @@ struct FactorialArgs {
   uint64_t mod;
 };
 
-uint64_t MultModulo(uint64_t a, uint64_t b, uint64_t mod) {
-  uint64_t result = 0;
-  a = a % mod;
-  while (b > 0) {
-    if (b % 2 == 1)
-      result = (result + a) % mod;
-    a = (a * 2) % mod;
-    b /= 2;
-  }
-
-  return result % mod;
-}
+// Прототипы функций из библиотеки
+uint64_t MultModulo(uint64_t a, uint64_t b, uint64_t mod);
 
 uint64_t Factorial(const struct FactorialArgs *args) {
   uint64_t ans = 1;
-
-  // TODO: your code here
+  
+  // Вычисляем произведение чисел от begin до end
+  for (uint64_t i = args->begin; i <= args->end; i++) {
+    ans = MultModulo(ans, i, args->mod);
+  }
 
   return ans;
 }
 
 void *ThreadFactorial(void *args) {
   struct FactorialArgs *fargs = (struct FactorialArgs *)args;
-  return (void *)(uint64_t *)Factorial(fargs);
+  uint64_t result = Factorial(fargs);
+  return (void *)result;
 }
 
 int main(int argc, char **argv) {
@@ -50,8 +44,6 @@ int main(int argc, char **argv) {
   int port = -1;
 
   while (true) {
-    int current_optind = optind ? optind : 1;
-
     static struct option options[] = {{"port", required_argument, 0, 0},
                                       {"tnum", required_argument, 0, 0},
                                       {0, 0, 0, 0}};
@@ -67,11 +59,9 @@ int main(int argc, char **argv) {
       switch (option_index) {
       case 0:
         port = atoi(optarg);
-        // TODO: your code here
         break;
       case 1:
         tnum = atoi(optarg);
-        // TODO: your code here
         break;
       default:
         printf("Index %d is out of options\n", option_index);
@@ -117,7 +107,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  printf("Server listening at %d\n", port);
+  printf("Server listening at %d with %d threads\n", port, tnum);
 
   while (true) {
     struct sockaddr_in client;
@@ -140,7 +130,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Client read failed\n");
         break;
       }
-      if (read < buffer_size) {
+      if ((unsigned int)read < buffer_size) {
         fprintf(stderr, "Client send wrong data format\n");
         break;
       }
@@ -154,14 +144,35 @@ int main(int argc, char **argv) {
       memcpy(&end, from_client + sizeof(uint64_t), sizeof(uint64_t));
       memcpy(&mod, from_client + 2 * sizeof(uint64_t), sizeof(uint64_t));
 
-      fprintf(stdout, "Receive: %llu %llu %llu\n", begin, end, mod);
+      fprintf(stdout, "Receive: %lu %lu %lu\n", begin, end, mod);
 
+      // Разбиваем диапазон между потоками
+      uint64_t range_size = end - begin + 1;
+      uint64_t chunk_size = range_size / tnum;
+      uint64_t remainder = range_size % tnum;
+      
       struct FactorialArgs args[tnum];
-      for (uint32_t i = 0; i < tnum; i++) {
-        // TODO: parallel somehow
-        args[i].begin = 1;
-        args[i].end = 1;
+      uint64_t current_begin = begin;
+      
+      for (int i = 0; i < tnum; i++) {
+        args[i].begin = current_begin;
+        
+        // Распределяем остаток поровну
+        uint64_t current_end = current_begin + chunk_size - 1;
+        if ((uint64_t)i < remainder) {
+          current_end++;
+        }
+        
+        // Для последнего потока гарантируем, что достигнем end
+        if (i == tnum - 1) {
+          args[i].end = end;
+        } else {
+          args[i].end = current_end;
+        }
+        
         args[i].mod = mod;
+        
+        current_begin = args[i].end + 1;
 
         if (pthread_create(&threads[i], NULL, ThreadFactorial,
                            (void *)&args[i])) {
@@ -171,13 +182,13 @@ int main(int argc, char **argv) {
       }
 
       uint64_t total = 1;
-      for (uint32_t i = 0; i < tnum; i++) {
+      for (int i = 0; i < tnum; i++) {
         uint64_t result = 0;
         pthread_join(threads[i], (void **)&result);
         total = MultModulo(total, result, mod);
       }
 
-      printf("Total: %llu\n", total);
+      printf("Total: %lu\n", total);
 
       char buffer[sizeof(total)];
       memcpy(buffer, &total, sizeof(total));
