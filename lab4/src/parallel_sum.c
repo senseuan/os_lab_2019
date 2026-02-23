@@ -1,126 +1,85 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include <time.h>
-
-#include "utils.h"
-#include "sum.h"
-
+#include <string.h>
 #include <pthread.h>
-#include <getopt.h>
-#include <linux/time.h>
+#include <sys/time.h>
+#include "sum_lib.h"
 
 void *ThreadSum(void *args) {
-  struct SumArgs *sum_args = (struct SumArgs *)args;
-  return (void *)(long)Sum(sum_args);
+    struct SumArgs *sum_args = (struct SumArgs *)args;
+    int *result = malloc(sizeof(int));
+    *result = Sum(sum_args);
+    return (void*)result;
 }
 
 int main(int argc, char **argv) {
-  int threads_num = -1;
-  int seed = -1;
-  int array_size = -1;
-
-  while (true) {
-    static struct option options[] = {
-        {"threads_num", required_argument, 0, 0},
-        {"seed", required_argument, 0, 0},
-        {"array_size", required_argument, 0, 0},
-        {0, 0, 0, 0}
-    };
-
-    int option_index = 0;
-    int c = getopt_long(argc, argv, "", options, &option_index);
-
-    if (c == -1) break;
-
-    switch (c) {
-      case 0:
-        switch (option_index) {
-          case 0:
-            threads_num = atoi(optarg);
-            if (threads_num <= 0) {
-              printf("threads_num must be a positive number\n");
-              return 1;
-            }
-            break;
-          case 1:
-            seed = atoi(optarg);
-            if (seed <= 0) {
-              printf("seed must be a positive number\n");
-              return 1;
-            }
-            break;
-          case 2:
-            array_size = atoi(optarg);
-            if (array_size <= 0) {
-              printf("array_size must be a positive number\n");
-              return 1;
-            }
-            break;
-          default:
-            printf("Index %d is out of options\n", option_index);
+    uint32_t threads_num = 0;
+    uint32_t array_size = 0;
+    uint32_t seed = 0;
+    
+    // Парсинг аргументов командной строки
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--threads_num") == 0 && i + 1 < argc) {
+            threads_num = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+            seed = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--array_size") == 0 && i + 1 < argc) {
+            array_size = atoi(argv[++i]);
         }
-        break;
-      case '?':
-        break;
-      default:
-        printf("getopt returned character code 0%o?\n", c);
     }
-  }
-
-  if (optind < argc) {
-    printf("Has at least one no option argument\n");
-    return 1;
-  }
-
-  if (seed == -1 || array_size == -1 || threads_num == -1) {
-    printf("Usage: %s --threads_num \"num\" --seed \"num\" --array_size \"num\"\n", argv[0]);
-    return 1;
-  }
-
-  // Генерация массива (не входит в замер времени)
-  int *array = malloc(sizeof(int) * array_size);
-  GenerateArray(array, array_size, seed);
-
-  pthread_t threads[threads_num];
-  struct SumArgs args[threads_num];
-  int chunk_size = array_size / threads_num;
-
-  // Начало замера времени
-  struct timespec start_time, end_time;
-  clock_gettime(CLOCK_MONOTONIC, &start_time);
-
-  // Создание потоков
-  for (uint32_t i = 0; i < threads_num; i++) {
-    args[i].array = array;
-    args[i].begin = i * chunk_size;
-    args[i].end = (i + 1) * chunk_size;
-    if (i == threads_num - 1) {
-      args[i].end = array_size;
+    
+    if (threads_num <= 0 || array_size <= 0 || threads_num > array_size) {
+        printf("Usage: %s --threads_num N --seed S --array_size M\n", argv[0]);
+        printf("Note: threads_num must be <= array_size\n");
+        return 1;
     }
-
-    if (pthread_create(&threads[i], NULL, ThreadSum, (void *)&args[i])) {
-      printf("Error: pthread_create failed!\n");
-      return 1;
+    
+    // Генерация массива
+    int *array = generate_array(array_size, seed);
+    if (!array) {
+        return 1;
     }
-  }
-
-  // Сбор результатов
-  int total_sum = 0;
-  for (uint32_t i = 0; i < threads_num; i++) {
-    int sum = 0;
-    pthread_join(threads[i], (void **)&sum);
-    total_sum += sum;
-  }
-
-  // Конец замера времени
-  clock_gettime(CLOCK_MONOTONIC, &end_time);
-  double time_taken = (end_time.tv_sec - start_time.tv_sec) * 1e9;
-  time_taken = (time_taken + (end_time.tv_nsec - start_time.tv_nsec)) * 1e-9;
-
-  free(array);
-  printf("Total: %d\n", total_sum);
-  printf("Time taken to calculate sum: %.6f seconds\n", time_taken);
-  return 0;
+    
+    // Создание потоков и замер времени
+    pthread_t threads[threads_num];
+    struct SumArgs args[threads_num];
+    
+    // Разделение массива между потоками
+    int chunk_size = array_size / threads_num;
+    
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
+    
+    for (uint32_t i = 0; i < threads_num; i++) {
+        args[i].array = array;
+        args[i].begin = i * chunk_size;
+        args[i].end = (i == threads_num - 1) ? array_size : (i + 1) * chunk_size;
+        
+        if (pthread_create(&threads[i], NULL, ThreadSum, (void *)&args[i]) != 0) {
+            printf("Error: pthread_create failed!\n");
+            free(array);
+            return 1;
+        }
+    }
+    
+    int total_sum = 0;
+    for (uint32_t i = 0; i < threads_num; i++) {
+        int *sum;
+        pthread_join(threads[i], (void **)&sum);
+        total_sum += *sum;
+        free(sum);
+    }
+    
+    gettimeofday(&end, NULL);
+    
+    long seconds = end.tv_sec - start.tv_sec;
+    long microseconds = end.tv_usec - start.tv_usec;
+    double elapsed = seconds + microseconds * 1e-6;
+    
+    free(array);
+    printf("Total sum: %d\n", total_sum);
+    printf("Time elapsed: %.6f seconds\n", elapsed);
+    
+    return 0;
 }

@@ -1,0 +1,16 @@
+# Исполняемые файлы
+parallel_min_max
+process_memory
+zombie_demo
+psum
+*.o
+*.out
+
+# Временные файлы
+*~
+*.swp
+*.swo
+
+# Результаты работы
+*.log
+*.txt
