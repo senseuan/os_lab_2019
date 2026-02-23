@@ -1,0 +1,6 @@
+*.o
+*.out
+mutex_no_lock
+mutex_with_lock
+factorial
+deadlock
