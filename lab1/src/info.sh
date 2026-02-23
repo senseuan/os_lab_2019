@@ -1,7 +1,5 @@
 #!/bin/bash
 
-echo "=== Системная информация ==="
-echo "Текущий путь: $(pwd)"
-echo "Текущая дата и время: $(date)"
-echo "Содержимое переменной PATH: $PATH"
-echo "============================"
+echo "Current path: $(pwd)"
+echo "Current date and time: $(date)"
+echo "PATH variable: $PATH"
